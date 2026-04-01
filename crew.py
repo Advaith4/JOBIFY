@@ -52,7 +52,11 @@ def extract_json(raw):
 
 def run_job_crew(resume_content):
     agent = create_job_finder()
-    task = create_job_task(agent, resume_content)
+    
+    # TRUNCATE to ~300 words to drastically prevent Groq 6000 Token limits from failing!
+    sliced_resume = resume_content[:1200]
+    task = create_job_task(agent, sliced_resume)
+    
     crew = Crew(agents=[agent], tasks=[task], verbose=False)
     result = crew.kickoff()
     raw = getattr(result, "raw", str(result)).strip()
@@ -61,8 +65,7 @@ def run_job_crew(resume_content):
     # Run the scorer on the raw jobs
     processed_jobs = []
     for job in data.get("jobs", []):
-        job_text = " ".join(job.get("required_skills", [])) + " " + job.get("description", "")
-        score_data = compute_match_score(resume_content, job_text)
+        score_data = compute_match_score(resume_content, job.get("required_skills", []))
         
         job["match_score"] = score_data["score"]
         job["priority"] = get_priority(score_data["score"])
@@ -84,7 +87,11 @@ def run_resume_crew(resume_content):
 
 def run_interview_crew(resume_content):
     agent = create_interview_coach()
-    task = create_interview_task(agent, resume_content)
+    
+    # TRUNCATE to avoid the TPM Rate Limit burst crash
+    sliced_resume = resume_content[:1200]
+    task = create_interview_task(agent, sliced_resume)
+    
     crew = Crew(agents=[agent], tasks=[task], verbose=False)
     result = crew.kickoff()
     raw = getattr(result, "raw", str(result)).strip()

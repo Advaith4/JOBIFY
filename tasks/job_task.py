@@ -26,12 +26,12 @@ STEP 1: Analyze the resume and identify:
 - Experience level (Beginner / Intermediate)
 
 STEP 2: Infer the BEST matching job roles dynamically
-- Suggest ONLY 2–3 roles
-- Do NOT use too many roles
-- Adapt role titles based on industry variations
+- Suggest ONLY 2–3 roles based on the user's hard skills.
 
-STEP 3: Generate EXACTLY 5 HIGHLY RELEVANT and REALISTIC job or internship opportunities
-suitable for a 3rd-year college student
+STEP 3: ACTIVATE YOUR WEB SEARCH TOOL to hunt for LIVE Jobs!
+- You MUST use the DuckDuckGoSearch tool to actively search the internet for the roles you inferred (e.g., "entry level Flutter Developer jobs LinkedIn").
+- You MUST find EXACTLY 5 REAL, currently open job or internship postings.
+- DO NOT hallucinate. Do not skip searching. Only output companies and links that your search tool returned to you in snippets!
 
 FOR EACH JOB, PROVIDE:
 
@@ -50,10 +50,9 @@ FOR EACH JOB, PROVIDE:
    - 2–3 lines explaining the job role
 
 5. link:
-   - MUST be a valid LinkedIn job search link
-   - Format:
-     https://www.linkedin.com/jobs/search/?keywords=<encoded_role>
-   - Replace spaces with %20
+   - MUST be the exact live URL returned from your Web Search Tool snippets.
+   - NEVER make up fake links.
+   - NEVER invent "https://www.linkedin.com/jobs/search/?keywords=role" templates. Extract real links found on the internet.
 
 IMPORTANT RULES:
 - ONLY entry-level or internship roles

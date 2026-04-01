@@ -89,7 +89,8 @@ Practical use of LLM orchestration (CrewAI)
 Handling real-world constraints like rate limits
 Building scalable backend systems with FastAPI
 Integrating AI into user-facing applications
-Future Improvements
+
+# Future Improvements
 Multi-turn conversational memory
 Job listing API integration
 Resume scoring system

@@ -1,6 +1,15 @@
 from crewai import Agent, LLM
+from langchain_community.tools import DuckDuckGoSearchResults
+from crewai.tools import tool
 import os
 from dotenv import load_dotenv
+
+search_instance = DuckDuckGoSearchResults()
+
+@tool("SearchTheInternet")
+def search_jobs(query: str) -> str:
+    """Useful to search the internet for exact links to active job postings. Returns snippets with links."""
+    return search_instance.run(query)
 
 # Load environment variables
 load_dotenv()
@@ -26,23 +35,13 @@ def create_job_finder():
         ),
 
         backstory=(
-            "You are a highly skilled career strategist and job market analyst with deep knowledge "
-            "of hiring trends, internship pipelines, and entry-level recruitment patterns. "
-            
-            "You specialize in helping college students and early-career candidates discover "
-            "opportunities where they have the highest probability of success. "
-            
-            "You analyze job descriptions critically, filter out irrelevant or unrealistic roles, "
-            "and focus only on positions that match the candidate’s current capabilities while "
-            "also offering meaningful growth. "
-            
-            "You think like a recruiter, a mentor, and a strategist combined — always aiming to "
-            "guide the candidate toward roles they can realistically secure and excel in."
+            "You are a cutting-edge internet-connected technical recruiter. "
+            "Instead of generating fake URLs, you use your search tool to surf the web and find ACTIVE job links from real companies."
         ),
-
-        verbose=True,
+        verbose=False,
         allow_delegation=False,
+        tools=[search_jobs],
         llm=llm
     )
-
+    
     return job_finder
