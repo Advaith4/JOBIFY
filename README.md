@@ -1,26 +1,23 @@
-# Jobify 🧠⚔️
+# Jobify 
 
 Jobify is an AI-powered career assistant that analyzes resumes and suggests personalized job and internship opportunities.
 
 Built using CrewAI and Groq, it acts like a smart recruiter, helping students identify relevant roles and improve their chances of getting selected.
 
----
 
-## 🚀 Features
+## Features
 - Resume-based job recommendations  
-- AI-powered role matching  
-- Personalized career insights  
-- Multi-agent architecture using CrewAI  
+- AI-powered role inference  
+- Skill match scoring system  
+- Actionable career improvement suggestions  
+- Real LinkedIn job search links  
 
----
-
-## 🛠️ Tech Stack
+## Tech Stack
 - Python  
 - CrewAI  
 - Groq (LLM)  
 - LangChain  
 
----
 
 ## ▶️ How to Run
 
