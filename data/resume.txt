@@ -1,0 +1,78 @@
+ADVAITH G
+
+Third-year Computer Science Engineering student with a strong focus on Artificial Intelligence,
+Machine Learning, Deep Learning, and Generative AI. Driven by a deep interest in building
+intelligent systems that understand patterns, context, and human behavior, I combine analytical
+problem-solving with solid software engineering fundamentals to develop scalable, data-driven
+solutions. Continuously expanding my expertise in model optimization, system design, and applied
+AI to create impactful, real-world technologies.
+Developed and fine-tuned a domain-specific LLM (MISTRAL-7B) for mental health counseling,
+enabling empathetic, context-aware, and emotionally adaptive chatbot conversations.
+Built an embedding-based psychiatrist recommendation system by semantically matching user
+conversations and symptoms with pre-embedded psychiatrist profiles using similarity scoring.
+Integrated emotion and risk-level analysis to dynamically influence chatbot responses and
+improve recommendation accuracy for appropriate specialist selection.
+Deployed the complete psychiatrist consultation portal, combining AI support, intelligent doctor
+matching, appointment booking, and secure payment workflows.
+ADVAITH G
+EXECUTIVE SUMMARY :
+PROJECTS:
+Developed an AI-based system to predict early signs of postpartum depression applying
+multiple Machine Learning models.
+Analyzed user inputs and emotional patterns to assess depression risk levels effectively.
+Integrated an intelligent chatbot to provide immediate, context-aware mental health support.
+Added a personalized recommendation system suggesting coping strategies and mental health
+resources.
+Awarded 2nd Prize at Rathinam Tech Fest for Best Paper Presentation based on this project.
+Approved project at IEEE and presented project at NIT Goa for publication and also filed a
+patent for the proposed system.
+POSTPARTUM DEPRESSION DETECTION USING ML AND CHATBOT ASSISTANCE
+• 9940712936 • advaith.2301006@srec.ac.in
+COMPUTER SCIENCE ENGINEER
+PSYCHIATRIST CONSULTATION PORTAL USING LLM-FINETUNING AND DOCTOR
+RECOMMENDATION SYSTEM
+https://www.linkedin.com/in/advaith-g-771800300/ https://github.com/Advaith4
+EDUCATIONAL SUMMARY
+Sri Ramakrishna Engineering College(2023-2027)
+8.49 CGPA(5 SEM)
+th
+SBOA Matriculation Higher Secondary School(2023)-12th
+89 percentage with a 100% Computer Science
+Chinmaya Vidyalaya Senior Secondary School(CBSE) (2021)-10th
+78 percentage
+KEY RESPONSIBILITIES
+Joint Secretary, Computer Society of India (CSI) Club — assisted in planning,
+coordination, and execution of technical events and activities.
+Vice President - Research and Innovation through Student Empowerment(RAISE CLUB)
+Treasurer, C3 – Coding Club - managed club finances and organized multiple “Weekly
+Logic Wars” and coding events.
+Executive Member, ACE Club - co-organized “CODE-A-THON”
+, a 3-round competitive
+coding event focused on problem-solving and algorithmic skills.
+SKILLS
+Programming Languages: Java,python.
+Artificial Intelligence: Machine Learning, Deep Learning, Generative AI, Explainable AI, LLM
+Fine-Tuning, Prompt Engineering.
+Web Tech: HTML,CSS,JS
+Project & Team Tools: Jira, Git & GitHuB, Docker, Redis.
+Frameworks & Tools: PyTorch,FastAPI,Flask,unsloth,Scikit-learn, Hugging Face Transformers,
+Microsoft Word, Microsoft Excel, Microsoft PowerPoint.
+Core: Data Structures and Algorithms, Object-Oriented Programming, Operating Systems,
+Computer Networks, Database Management Systems
+INTERNSHIP
+Information Systems Associate Intern – Larsen & Toubro (Kudankulam Nuclear Power Plant)
+Gained hands-on exposure to enterprise IT infrastructure in a safety-critical industrial
+environment. Worked with RF-based networking, routers, switches, firewalls, Windows Server &
+Active Directory. Observed CCTV, NVR, NAS systems, and enterprise cybersecurity practices
+including endpoint security, access control, and data policies.
+Machine Learning Intern – NxtLogic
+Learned Python fundamentals and applied them to Machine Learning workflows. Worked on a
+data analysis project studying student dropout trends after JEE and 12th grade. Gained
+practical experience with data preprocessing, exploratory analysis, and basic classification and
+regression models for insight generation.
+ACHIEVEMENTS
+1st prize 24-hour hackathon organized by L&T EDUTECH
+2nd prize in paper presentation in Ratinam Tech Fest.
+CERTIFICATIONS
+NPTEL : Business Intelligence and Analytics , Privacy and Security in Online Social
+Media,Cyber Security and Privacy(Top 2% Topper).
