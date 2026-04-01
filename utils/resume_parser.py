@@ -1,20 +1,18 @@
-import fitz  # PyMuPDF
+import pypdf
 import re
-
 
 def extract_text_from_pdf(pdf_path):
     """
     Extracts raw text from a PDF file.
     """
-
     try:
-        doc = fitz.open(pdf_path)
         text = ""
-
-        for page in doc:
-            text += page.get_text()
-
-        doc.close()
+        with open(pdf_path, "rb") as file:
+            reader = pypdf.PdfReader(file)
+            for page in reader.pages:
+                raw_text = page.extract_text()
+                if raw_text:
+                    text += raw_text + "\n"
 
         if not text.strip():
             raise ValueError("Empty text extracted from PDF.")

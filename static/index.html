@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jobify | AI Career Assistant</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="background-effects">
+        <div class="blob purple-blob"></div>
+        <div class="blob cyan-blob"></div>
+    </div>
+
+    <div class="container">
+        <header>
+            <div class="logo">
+                <i class="fa-solid fa-briefcase"></i> Jobify<span class="highlight">.ai</span>
+            </div>
+            <p class="subtitle">Your AI-powered career strategist. Upload your resume to find your perfect match, optimize your profile, and crush your interviews.</p>
+        </header>
+
+        <main id="main-content">
+            <!-- Upload Section -->
+            <section id="upload-section" class="glass-panel">
+                <div class="upload-area" id="drop-zone">
+                    <i class="fa-regular fa-file-pdf icon-large"></i>
+                    <h2>Upload your Resume</h2>
+                    <p>Drag and drop your PDF here, or click to browse</p>
+                    <input type="file" id="file-input" accept="application/pdf" hidden>
+                    <button class="btn primary-btn" onclick="document.getElementById('file-input').click()">Browse Files</button>
+                    <div id="file-info" class="hidden">
+                        <span id="file-name"></span>
+                        <i class="fa-solid fa-check text-green"></i>
+                    </div>
+                </div>
+                <button id="analyze-btn" class="btn magic-btn disabled" disabled>
+                    <i class="fa-solid fa-wand-magic-sparkles"></i> Analyze Resume
+                </button>
+            </section>
+
+            <!-- Loading State -->
+            <section id="loading-section" class="hidden">
+                <div class="loader">
+                    <div class="spinner"></div>
+                    <h3>AI Agents at Work</h3>
+                    <p class="fade-text" id="loading-text">Parsing PDF...</p>
+                </div>
+            </section>
+
+            <!-- Results Section -->
+            <section id="results-section" class="hidden">
+                
+                <div class="tab-system">
+                    <button class="tab-btn active" data-target="jobs-tab"><i class="fa-solid fa-building"></i> Best Fits</button>
+                    <button class="tab-btn" data-target="resume-tab"><i class="fa-solid fa-file-signature"></i> Resume Optimizer</button>
+                    <button class="tab-btn" data-target="interview-tab"><i class="fa-solid fa-comments"></i> Interview Coach</button>
+                </div>
+
+                <div class="tab-content">
+                    
+                    <!-- Jobs Tab -->
+                    <div id="jobs-tab" class="tab-pane active">
+                        <div class="inferred-roles glass-panel">
+                            <h3><i class="fa-solid fa-bullseye"></i> AI Inferred Roles for You</h3>
+                            <div id="roles-container" class="tags-container"></div>
+                        </div>
+                        <h3 class="section-title">Top 5 Job Matches</h3>
+                        <div id="jobs-container" class="cards-grid"></div>
+                    </div>
+
+                    <!-- Optimizer Tab -->
+                    <div id="resume-tab" class="tab-pane hidden glass-panel">
+                        <h3><i class="fa-solid fa-tools"></i> ATS & Impact Improvements</h3>
+                        <ul id="improvements-list" class="styled-list"></ul>
+                    </div>
+
+                    <!-- Interview Tab -->
+                    <div id="interview-tab" class="tab-pane hidden glass-panel">
+                        <h3><i class="fa-solid fa-clipboard-question"></i> Expected Interview Questions</h3>
+                        <div id="questions-container" class="cards-grid"></div>
+                    </div>
+
+                </div>
+                
+                <div class="actions">
+                    <button id="reset-btn" class="btn outline-btn"><i class="fa-solid fa-rotate-left"></i> Analyze Another Resume</button>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

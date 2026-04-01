@@ -1,0 +1,8 @@
+crewai>=1.0.0
+groq
+python-dotenv
+pypdf
+fastapi
+uvicorn
+python-multipart
+# Crewai might have strict constraints, ensuring compatibility.

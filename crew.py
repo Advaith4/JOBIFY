@@ -1,38 +1,47 @@
 from crewai import Crew
-from agents.job_finder import create_job_finder
-from tasks.job_task import create_job_task
-
+import concurrent.futures
 import json
 import re
+import time
 
-from utils.skill_scorer import (
-    compute_match_score,
-    get_priority,
-    generate_action_plan
-)
+def run_with_retries(func, *args):
+    """Graceful exponential backoff for Free Tier APIs (Groq 6000 TPM limit)"""
+    for attempt in range(4):
+        try:
+            return func(*args)
+        except Exception as e:
+            err = str(e).lower()
+            if "rate limit" in err or "429" in err or "decommission" in err:
+                delay = 5 * (attempt + 1)
+                print(f"⏳ Groq rate limit exceeded in {func.__name__}. Sleeping {delay} seconds...")
+                time.sleep(delay)
+            else:
+                raise e
+    return func(*args)
 
+# Import agents
+from agents.job_finder import create_job_finder
+from agents.resume_optimizer import create_resume_optimizer
+from agents.interview_coach import create_interview_coach
 
-def load_resume(file_path="data/resume.txt"):
-    try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            return f.read()
-    except Exception as e:
-        print(f"❌ Error reading resume: {e}")
-        return ""
+# Import tasks
+from tasks.job_task import create_job_task
+from tasks.resume_task import create_resume_task
+from tasks.interview_task import create_interview_task
 
+# Import utils
+from utils.skill_scorer import compute_match_score, get_priority, generate_action_plan
 
 def extract_json(raw):
     """
     Safely extract JSON from ANY messy LLM output
     """
     try:
-        # Case 1: already clean JSON
         return json.loads(raw)
     except:
         pass
 
     try:
-        # Case 2: extract JSON block using regex
         match = re.search(r"\{.*\}", raw, re.DOTALL)
         if match:
             return json.loads(match.group())
@@ -41,81 +50,74 @@ def extract_json(raw):
 
     return None
 
-
-def run_war_room():
-    print("\n🚀 Running Jobify...\n")
-
-    resume_content = load_resume()
-
-    if not resume_content:
-        print("❌ Resume is empty. Exiting...")
-        return
-
-    job_finder = create_job_finder()
-    job_task = create_job_task(job_finder, resume_content)
-
-    crew = Crew(
-        agents=[job_finder],
-        tasks=[job_task],
-        verbose=True
-    )
-
+def run_job_crew(resume_content):
+    agent = create_job_finder()
+    task = create_job_task(agent, resume_content)
+    crew = Crew(agents=[agent], tasks=[task], verbose=False)
     result = crew.kickoff()
-
-    # 🔥 HANDLE ALL POSSIBLE OUTPUT TYPES
-    raw_output = None
-
-    if hasattr(result, "raw"):
-        raw_output = result.raw
-    else:
-        raw_output = str(result)
-
-    raw_output = raw_output.strip()
-
-    data = extract_json(raw_output)
-
-    if not data:
-        print("❌ JSON parsing failed completely")
-        print("\nRaw Output:\n", raw_output)
-        return
-
-    # 🎯 DISPLAY
-    print("\n🎯 Suggested Roles:\n")
-    for role in data.get("suggested_roles", []):
-        print(f"- {role}")
-
-    print("\n📌 Job Opportunities:\n")
-
-    for i, job in enumerate(data.get("jobs", []), start=1):
-        print("=" * 60)
-        print(f"🔹 Job {i}")
-        print(f"🏢 Company: {job.get('company')}")
-        print(f"💼 Role: {job.get('role')}")
-
+    raw = getattr(result, "raw", str(result)).strip()
+    data = extract_json(raw) or {"suggested_roles": [], "jobs": []}
+    
+    # Run the scorer on the raw jobs
+    processed_jobs = []
+    for job in data.get("jobs", []):
         job_text = " ".join(job.get("required_skills", [])) + " " + job.get("description", "")
-
         score_data = compute_match_score(resume_content, job_text)
+        
+        job["match_score"] = score_data["score"]
+        job["priority"] = get_priority(score_data["score"])
+        job["action_plan"] = generate_action_plan(score_data["score"], score_data["missing_keywords"])
+        job["matched_skills"] = score_data["matched_keywords"][:5]
+        job["missing_skills"] = score_data["missing_keywords"][:5]
+        processed_jobs.append(job)
+        
+    data["jobs"] = processed_jobs
+    return data
 
-        score = score_data["score"]
-        priority = get_priority(score)
-        action_plan = generate_action_plan(score, score_data["missing_keywords"])
+def run_resume_crew(resume_content):
+    agent = create_resume_optimizer()
+    task = create_resume_task(agent, resume_content)
+    crew = Crew(agents=[agent], tasks=[task], verbose=False)
+    result = crew.kickoff()
+    raw = getattr(result, "raw", str(result)).strip()
+    return extract_json(raw) or {"improvements": []}
 
-        print(f"\n📊 Match Score: {score}%")
-        print(f"🎯 Priority: {priority}")
+def run_interview_crew(resume_content):
+    agent = create_interview_coach()
+    task = create_interview_task(agent, resume_content)
+    crew = Crew(agents=[agent], tasks=[task], verbose=False)
+    result = crew.kickoff()
+    raw = getattr(result, "raw", str(result)).strip()
+    return extract_json(raw) or {"questions": []}
 
-        print("\n✅ Matched Skills:")
-        print(", ".join(score_data["matched_keywords"][:5]) or "None")
-
-        print("\n❌ Missing Skills:")
-        print(", ".join(score_data["missing_keywords"][:5]) or "None")
-
-        print(f"\n🧠 Action Plan: {action_plan}")
-
-        print(f"\n🔗 Apply Here: {job.get('link')}")
-        print("=" * 60)
-
-    print("\n🔥 DONE. No crashes. No nonsense.\n")
-
-
-if __name__ == "__main__":
-    run_war_room()
+def analyze_resume_pipeline(resume_content):
+    """
+    Runs all 3 agents in parallel and combines the outputs.
+    """
+    print("Starting smart parallel analysis pipeline...")
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        future_jobs = executor.submit(run_with_retries, run_job_crew, resume_content)
+        
+        # Stagger the next requests by a few seconds to let Groq's token bucket refill smoothly
+        def run_resume(content):
+            time.sleep(2)
+            return run_with_retries(run_resume_crew, content)
+            
+        def run_interview(content):
+            time.sleep(5)
+            return run_with_retries(run_interview_crew, content)
+            
+        future_resume = executor.submit(run_resume, resume_content)
+        future_interview = executor.submit(run_interview, resume_content)
+        
+        jobs_data = future_jobs.result()
+        resume_data = future_resume.result()
+        interview_data = future_interview.result()
+        
+    return {
+        "roles": jobs_data.get("suggested_roles", []),
+        "jobs": jobs_data.get("jobs", []),
+        "improvements": resume_data.get("improvements", []),
+        "questions": interview_data.get("questions", [])
+    }
