@@ -1,10 +1,10 @@
-Jobify – AI Career Assistant
+# Jobify – AI Career Assistant
 
 Jobify is a full-stack AI-powered career assistant that analyzes resumes, suggests relevant job opportunities, improves resume content, and prepares users for interviews using a multi-agent system.
 
 It is designed to demonstrate practical applications of LLMs in real-world workflows, including document parsing, task orchestration, and asynchronous backend systems.
 
-Features
+# Features
 Resume Parsing
 Extracts structured text from PDF resumes using pypdf
 Works across platforms without external dependencies
@@ -23,7 +23,7 @@ FastAPI backend with async support
 Simple and responsive frontend interface
 Tech Stack
 
-Backend
+# Backend
 
 Python 3.10+
 FastAPI
@@ -31,17 +31,17 @@ Uvicorn
 CrewAI
 LiteLLM
 
-Frontend
+# Frontend
 
 HTML5
 CSS3
 Vanilla JavaScript
 
-AI Models
+# AI Models
 
 Groq LLMs (Llama 3 variants)
 
-Parsing & Utilities
+# Parsing & Utilities
 
 pypdf
 python-multipart
@@ -81,7 +81,7 @@ To manage API rate limits, a retry mechanism with exponential backoff is impleme
 
 The backend returns structured responses that are rendered dynamically in the frontend.
 
-Purpose
+# Purpose
 
 This project demonstrates:
 
