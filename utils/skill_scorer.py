@@ -1,4 +1,20 @@
 import re
+from collections import Counter
+
+TECH_KEYWORDS = {
+    "python", "java", "javascript", "react", "node", "flutter", "aws", 
+    "docker", "kubernetes", "sql", "machine learning", "data science", 
+    "c++", "c#", "ruby", "php", "django", "fastapi", "spring", "android", "ios", "firebase"
+}
+
+def extract_keywords(text):
+    text = text.lower()
+    found = {}
+    for skill in TECH_KEYWORDS:
+        count = len(re.findall(rf"\b{re.escape(skill)}\b", text))
+        if count > 0:
+            found[skill] = count
+    return Counter(found)
 
 def normalize_text(text):
     return text.lower()

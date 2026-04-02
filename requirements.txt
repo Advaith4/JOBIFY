@@ -1,8 +1,10 @@
 crewai>=1.0.0
+crewai-tools>=0.14.0
+ddgs>=9.0.0
+duckduckgo-search>=6.0.0
 groq
 python-dotenv
 pypdf
 fastapi
 uvicorn
 python-multipart
-# Crewai might have strict constraints, ensuring compatibility.
