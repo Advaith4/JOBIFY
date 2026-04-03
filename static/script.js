@@ -284,9 +284,12 @@ document.addEventListener("DOMContentLoaded", () => {
             const ev = data.evaluation;
             const evalHtml = `
                 <div style="margin-bottom:0.8rem;"><strong style="color:var(--amber);">Evaluation Score: ${ev.score}/10</strong></div>
-                <div style="margin-bottom:0.4rem;"><strong>Strengths:</strong> ${ev.strengths?.join(", ")}</div>
-                <div style="margin-bottom:0.4rem;"><strong>Weaknesses:</strong> ${ev.weaknesses?.join(", ")}</div>
-                <div><strong>Actionable Feedback:</strong> ${ev.improvements}</div>
+                <div style="display:flex; gap: 1rem; margin-bottom:0.4rem; font-size:0.9rem;">
+                   <span><strong>Technical:</strong> ${ev.technical_depth || '-'}/10</span>
+                   <span><strong>Communication:</strong> ${ev.communication || '-'}/10</span>
+                </div>
+                <div style="margin-bottom:0.4rem;"><strong>Missing Concepts:</strong> ${ev.missing_concepts?.join(", ") || 'None'}</div>
+                <div><strong>Actionable Feedback:</strong> ${ev.improvement || ev.improvements || ''}</div>
             `;
 
             appendChatMessage("Coach (Evaluation)", evalHtml, "coach-eval");

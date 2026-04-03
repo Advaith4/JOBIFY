@@ -33,22 +33,29 @@ OUTPUT FORMAT (STRICT JSON ONLY):
         agent=agent
     )
 
-def create_interview_start_task(agent, role, difficulty):
+def create_interview_start_task(agent, role, difficulty, weak_areas):
+    weak_context = ""
+    if weak_areas:
+        weak_context = "The candidate has the following weaknesses identified from their resume: " + ", ".join(weak_areas) + "\nIncorporate these into your question if relevant."
+
     description = """
 You are the Interviewer.
 The candidate is applying for the role: {role}.
 The current difficulty level is {difficulty}/10.
+{weak_context}
 
 Generate exactly ONE targeted interview question for this candidate.
 If the difficulty is high (7-10), make it a system design or deep architectural question.
 If the difficulty is medium (4-6), make it a practical coding or scenario question.
 If the difficulty is low (1-3), make it a basic conceptual or behavioral question.
 
+Return ONLY JSON. Do not include any extra text.
+
 OUTPUT FORMAT (STRICT JSON ONLY):
 {{
   "question": "The interview question string"
 }}
-""".format(role=role, difficulty=difficulty)
+""".format(role=role, difficulty=difficulty, weak_context=weak_context)
 
     return Task(
         description=description,
@@ -72,12 +79,15 @@ CRITICAL RULES FOR SCORING:
 
 List strengths (if any), weaknesses, and a concrete suggestion for improvement.
 
+Return ONLY JSON. Do not include any extra text.
+
 OUTPUT FORMAT (STRICT JSON ONLY):
 {{
   "score": 8,
-  "strengths": ["...", "..."],
-  "weaknesses": ["..."],
-  "improvements": "..."
+  "technical_depth": 7,
+  "communication": 8,
+  "missing_concepts": ["concept 1", "concept 2"],
+  "improvement": "Concrete suggestion here."
 }}
 """.format(question=question, answer=answer)
 
@@ -99,6 +109,8 @@ Candidate Answer: {answer}
 Based on the answer, generate exactly ONE follow-up question. 
 - If the candidate gave a strong answer, dig deeper into a missing detail, ask them to optimize their approach, or introduce a constraint.
 - If the candidate struggled or said "I don't know", step back and ask a much more fundamental, basic conceptual question related to the topic (e.g. "Let's step back, can you explain what a Recommendation System does in general?").
+
+Return ONLY JSON. Do not include any extra text.
 
 OUTPUT FORMAT (STRICT JSON ONLY):
 {{
@@ -124,6 +136,8 @@ Rule of thumb:
 - If score <= 4: decrease difficulty by 1.
 - Else: keep it the same.
 Difficulty must stay between 1 and 10.
+
+Return ONLY JSON. Do not include any extra text.
 
 OUTPUT FORMAT (STRICT JSON ONLY):
 {{

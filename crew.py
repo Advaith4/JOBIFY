@@ -57,7 +57,8 @@ logger = logging.getLogger(__name__)
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
-def extract_json(raw: str) -> dict | None:
+def extract_json(raw: str, task_name="LLM") -> dict | None:
+    logger.debug("%s Raw Output Length: %d", task_name, len(raw) if raw else 0)
     """
     Safely extract the first JSON object from ANY messy LLM output.
     Strategy:
@@ -327,9 +328,10 @@ def run_resume_rewriter(resume_content: str) -> dict:
     raw = getattr(result, "raw", str(result)).strip()
     return extract_json(raw) or {"rewritten_lines": []}
 
-def run_interview_start(role: str, difficulty: int) -> dict:
+def run_interview_start(role: str, difficulty: int, weak_areas: list = None) -> dict:
+    if weak_areas is None: weak_areas = []
     agent = create_interviewer()
-    task = create_interview_start_task(agent, role, difficulty)
+    task = create_interview_start_task(agent, role, difficulty, weak_areas)
     crew = Crew(agents=[agent], tasks=[task], verbose=False)
     result = crew.kickoff()
     raw = getattr(result, "raw", str(result)).strip()

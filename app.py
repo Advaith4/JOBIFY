@@ -22,6 +22,7 @@ interview_sessions = {}
 class InterviewStartReq(BaseModel):
     role: str
     difficulty: int = 5
+    weak_areas: list[str] = []
 
 class InterviewAnswerReq(BaseModel):
     session_id: str
@@ -143,11 +144,15 @@ async def resume_rewrite_endpoint(file: UploadFile = File(...)):
 @app.post("/interview/start")
 async def interview_start(req: InterviewStartReq):
     try:
-        results = run_interview_start(req.role, req.difficulty)
+        results = run_interview_start(req.role, req.difficulty, req.weak_areas)
         session_id = uuid.uuid4().hex
         interview_sessions[session_id] = {
             "role": req.role,
             "difficulty": req.difficulty,
+            "weak_areas": req.weak_areas,
+            "questions": [],
+            "answers": [],
+            "scores": [],
             "current_question": results.get("question")
         }
         return {"session_id": session_id, "question": results.get("question")}
@@ -173,6 +178,12 @@ async def interview_answer(req: InterviewAnswerReq):
         )
         
         # update session state dynamically!
+        session["questions"].append(session["current_question"])
+        session["answers"].append(req.answer)
+        
+        eval_score = results.get("evaluation", {}).get("score", 5)
+        session["scores"].append(eval_score)
+
         new_diff = results.get("new_difficulty", session["difficulty"])
         
         # Force bounds on difficulty safely parsing as int

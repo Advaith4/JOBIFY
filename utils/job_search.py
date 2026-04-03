@@ -8,6 +8,7 @@ Architecture:
   - Query diversification prevents one recruiter/company from dominating results.
 """
 import os
+import time
 import logging
 import requests
 from dotenv import load_dotenv
@@ -52,23 +53,30 @@ def fetch_jobs_from_api(query: str, num_results: int = 10, page: int = 1) -> lis
         "num_results_per_page": str(min(num_results, 10)),  # API max = 10
     }
 
-    try:
-        response = requests.get(
-            _JSEARCH_URL,
-            headers=_headers(),
-            params=params,
-            timeout=15,
-        )
-        response.raise_for_status()
-        data = response.json()
-    except requests.exceptions.Timeout:
-        logger.warning("JSearch API timed out for query: %s", query)
-        return []
-    except requests.exceptions.HTTPError as exc:
-        logger.warning("JSearch API HTTP error %s for query: %s", exc.response.status_code, query)
-        return []
-    except Exception as exc:
-        logger.warning("JSearch API unexpected error: %s", exc)
+    for attempt in range(3):
+        try:
+            response = requests.get(
+                _JSEARCH_URL,
+                headers=_headers(),
+                params=params,
+                timeout=10,
+            )
+            response.raise_for_status()
+            data = response.json()
+            break  # success
+        except requests.exceptions.Timeout:
+            logger.warning("JSearch API timed out (attempt %d/3) for query: %s", attempt+1, query)
+        except requests.exceptions.HTTPError as exc:
+            logger.warning("JSearch API HTTP error %s (attempt %d/3) for query: %s", exc.response.status_code, attempt+1, query)
+            if exc.response.status_code == 429:
+                time.sleep(2 * (attempt + 1))
+                continue
+            break
+        except Exception as exc:
+            logger.warning("JSearch API unexpected error (attempt %d/3): %s", attempt+1, exc)
+            break
+    else:
+        logger.error("JSearch API failed after 3 attempts.")
         return []
 
     jobs = []
@@ -115,7 +123,7 @@ def fetch_jobs_for_roles(roles: list[str], prefs: dict = None, jobs_per_role: in
 
     Returns a flat, deduplicated, company-diverse list of job dicts.
     """
-    seen_title_company: set[tuple] = set()
+    seen_job_keys: set[tuple] = set()
     company_count: dict[str, int] = {}
     all_jobs: list[dict] = []
 
@@ -162,13 +170,13 @@ def fetch_jobs_for_roles(roles: list[str], prefs: dict = None, jobs_per_role: in
                 title   = job["title"].strip().lower()
                 company = job["company"].strip().lower()
 
-                # Skip if no title or no URL
-                if not title or not job["url"]:
+                # Filter Point 8: URL validation
+                if not job["url"] or not job["url"].startswith("http"):
                     continue
 
-                # Exact dedup by (title, company)
-                key = (title, company)
-                if key in seen_title_company:
+                # Point 7: Deduplicate by (title + company + location)
+                key = (title, company, job["location"].strip().lower())
+                if key in seen_job_keys:
                     continue
 
                 # Company diversity cap — skip if this employer is already well-represented
@@ -176,7 +184,7 @@ def fetch_jobs_for_roles(roles: list[str], prefs: dict = None, jobs_per_role: in
                     logger.debug("Skipping duplicate company: %s", company)
                     continue
 
-                seen_title_company.add(key)
+                seen_job_keys.add(key)
                 company_count[company] = company_count.get(company, 0) + 1
                 all_jobs.append(job)
 

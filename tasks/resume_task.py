@@ -9,6 +9,9 @@ Analyze the following resume:
 {resume}
 ---------------------
 Provide EXACTLY 4 actionable improvement points to make this resume better.
+
+Return ONLY JSON. Do not include any extra text.
+
 OUTPUT FORMAT (STRICT JSON ONLY):
 {{
   "improvements": ["improvement 1", "improvement 2", "improvement 3", "improvement 4"]
@@ -35,6 +38,8 @@ RESUME:
 Identify specific issues (e.g., weak verbs, lack of metrics, formatting errors).
 Provide overall improvements and a qualitative score.
 Provide feedback on specific sections: skills, experience, and projects.
+
+Return ONLY JSON. Do not include any extra text.
 
 OUTPUT FORMAT (STRICT JSON ONLY):
 {{
@@ -66,7 +71,10 @@ RESUME:
 {resume}
 ---------------------
 
-Rewrite them to be highly impactful, action-oriented, and ATS-friendly. Ensure you preserve their original meaning.
+Rewrite them to be highly impactful, action-oriented, and ATS-friendly. 
+CRITICAL: Do NOT add fake metrics, numbers, or achievements. Only improve the wording, verbs, and structure. Ensure you preserve their original meaning.
+
+Return ONLY JSON. Do not include any extra text.
 
 OUTPUT FORMAT (STRICT JSON ONLY):
 {{
