@@ -1,114 +1,177 @@
 """
-job_search.py  –  Real-time job search using DuckDuckGo (no API key needed).
+job_search.py – Fetches REAL job listings from JSearch API (RapidAPI).
 
-Fetches actual search result snippets for each inferred role so the LLM
-can extract real company names and URLs instead of hallucinating them.
+Architecture:
+  - All job data (title, company, URL, description) comes from the live API.
+  - The LLM's role is ONLY to rank/filter from this real data — never to invent jobs.
+  - Zero hallucinated URLs. Every link is the direct apply link from the API.
+  - Query diversification prevents one recruiter/company from dominating results.
 """
-import time
+import os
+import logging
+import requests
+from dotenv import load_dotenv
 
-try:
-    from ddgs import DDGS
-except ImportError:
-    from duckduckgo_search import DDGS
+load_dotenv()
+
+logger = logging.getLogger(__name__)
+
+_JSEARCH_URL = "https://jsearch.p.rapidapi.com/search"
+
+# Headers are built dynamically so we pick up the key at call time (not import time)
+def _headers() -> dict:
+    return {
+        "X-RapidAPI-Key": os.getenv("RAPIDAPI_KEY", ""),
+        "X-RapidAPI-Host": "jsearch.p.rapidapi.com",
+    }
 
 
-_JOB_DOMAINS = [
-    "linkedin.com/jobs",
-    "indeed.com/viewjob",
-    "indeed.com/jobs",
-    "naukri.com",
-    "glassdoor.com/job",
-    "internshala.com",
-    "wellfound.com/jobs",
-    "careers.",
-    "/jobs/",
-    "/careers/",
-    "jobs.lever.co",
-    "boards.greenhouse.io",
-    "workatastartup.com",
+def fetch_jobs_from_api(query: str, num_results: int = 10, page: int = 1) -> list[dict]:
+    """
+    Fetch REAL job listings from JSearch API for a given query string.
+
+    Returns a list of structured job dicts:
+      {title, company, url, location, description}
+
+    On any failure, returns an empty list (caller handles fallback).
+    """
+    if not os.getenv("RAPIDAPI_KEY"):
+        logger.error("RAPIDAPI_KEY is not set. Cannot fetch jobs from JSearch.")
+        return []
+
+    params = {
+        "query": query,
+        "page": str(page),
+        "num_pages": "1",
+        "num_results_per_page": str(min(num_results, 10)),  # API max = 10
+    }
+
+    try:
+        response = requests.get(
+            _JSEARCH_URL,
+            headers=_headers(),
+            params=params,
+            timeout=15,
+        )
+        response.raise_for_status()
+        data = response.json()
+    except requests.exceptions.Timeout:
+        logger.warning("JSearch API timed out for query: %s", query)
+        return []
+    except requests.exceptions.HTTPError as exc:
+        logger.warning("JSearch API HTTP error %s for query: %s", exc.response.status_code, query)
+        return []
+    except Exception as exc:
+        logger.warning("JSearch API unexpected error: %s", exc)
+        return []
+
+    jobs = []
+    for job in data.get("data", []):
+        raw_desc = job.get("job_description") or ""
+        apply_link = job.get("job_apply_link", "").strip()
+        if not apply_link:
+            apply_link = job.get("job_google_link", "").strip()  # fallback
+        jobs.append({
+            "title": job.get("job_title", "").strip(),
+            "company": job.get("employer_name", "").strip(),
+            "url": apply_link,
+            "location": (job.get("job_city") or job.get("job_state")
+                         or job.get("job_country") or "Remote").strip(),
+            "description": raw_desc[:300].strip(),
+        })
+
+    logger.info("Fetched %d jobs from JSearch for query: '%s'", len(jobs), query)
+    return jobs
+
+
+# ── Query diversification templates ────────────────────────────────────────────
+# Using varied queries for the same role prevents one recruiter / staffing
+# agency (like SynergisticIT) from dominating the results list.
+_QUERY_TEMPLATES = [
+    "{role}",
+    "{role} entry level",
+    "{role} junior remote",
+    "{role} internship",
+    "{role} fresher",
 ]
 
 
-def _is_job_link(url: str) -> bool:
-    return any(d in url for d in _JOB_DOMAINS)
-
-
-def search_jobs_for_role(role: str, max_results: int = 4) -> list[dict]:
+def fetch_jobs_for_roles(roles: list[str], prefs: dict = None, jobs_per_role: int = 3) -> list[dict]:
     """
-    Search DuckDuckGo for real job postings for a given role.
-    Returns a list of dicts: {title, url, snippet, is_job_board}
-    Tries multiple query variations for resilience.
+    Fetch real job listings for a list of roles using query diversification.
+
+    Strategy:
+      - For each role, run up to 3 differently-phrased queries (entry level, remote, internship…)
+      - Deduplicate by (title, company) — exact match
+      - Also soft-deduplicate: if a company already appears ≥3 times, skip further listings
+        from that company to prevent one recruiter from dominating.
+
+    Returns a flat, deduplicated, company-diverse list of job dicts.
     """
-    queries = [
-        f'"{role}" internship OR "entry level" job apply 2025',
-        f'"{role}" junior job opening site:linkedin.com OR site:naukri.com OR site:indeed.com',
-        f'"{role}" fresher OR graduate job 2025',
-        f"{role} job openings entry level",
-    ]
+    seen_title_company: set[tuple] = set()
+    company_count: dict[str, int] = {}
+    all_jobs: list[dict] = []
 
-    results = []
-    seen_urls = set()
-
-    try:
-        ddgs = DDGS()
-        for query in queries:
-            try:
-                hits = list(ddgs.text(query, max_results=max_results))
-                for h in hits:
-                    url = h.get("href") or h.get("url") or ""
-                    if not url or url in seen_urls:
-                        continue
-                    seen_urls.add(url)
-                    results.append({
-                        "title": h.get("title", ""),
-                        "url": url,
-                        "snippet": h.get("body", "")[:250],
-                        "is_job_board": _is_job_link(url),
-                    })
-                time.sleep(0.3)
-                if len(results) >= max_results:
-                    break
-            except Exception:
-                time.sleep(0.5)
-                continue
-    except Exception:
-        pass
-
-    # Prefer actual job-board links
-    results.sort(key=lambda x: not x["is_job_board"])
-    return results[:max_results]
-
-
-def _linkedin_search_url(role: str) -> str:
-    """Construct a guaranteed-working LinkedIn search URL (not a specific job page)."""
-    encoded = role.strip().replace(" ", "%20")
-    return f"https://www.linkedin.com/jobs/search/?keywords={encoded}&f_E=1%2C2&sortBy=DD"
-
-
-def fetch_real_job_snippets(roles: list[str]) -> str:
-    """
-    Given a list of role names, searches DuckDuckGo for each role and returns
-    a formatted string of real search results to embed in the LLM prompt.
-    Each role is guaranteed to have at least a LinkedIn search fallback URL.
-    """
-    output_lines = ["=== REAL JOB SEARCH RESULTS (fetched live from DuckDuckGo) ===\n"]
+    MAX_JOBS_PER_COMPANY = 2   # hard cap per employer across the full result set
+    TARGET_TOTAL = max(len(roles) * jobs_per_role, 10)
 
     for role in roles:
-        output_lines.append(f"## Role: {role}")
-        results = search_jobs_for_role(role, max_results=3)
+        # Build query modifiers based on user preferences
+        modifiers = []
+        if prefs:
+            loc = prefs.get('location', '').strip()
+            exp = prefs.get('experience', '').strip()
+            mode = prefs.get('work_mode', '').strip()
+            jtype = prefs.get('job_type', '').strip()
+            
+            if loc and loc.lower() != 'any':
+                modifiers.append(loc)
+            if mode and mode.lower() != 'any':
+                modifiers.append(mode)
+            if jtype and jtype.lower() != 'any':
+                modifiers.append(jtype)
+            if exp and exp.lower() != 'any':
+                modifiers.append(exp)
 
-        if results:
-            for i, r in enumerate(results, 1):
-                output_lines.append(f"  [{i}] Title: {r['title']}")
-                output_lines.append(f"       URL: {r['url']}")
-                output_lines.append(f"       Snippet: {r['snippet']}")
+        modifier_str = " ".join(modifiers).strip()
+        
+        if modifier_str:
+            # High specificity when preferences are provided
+            templates = [
+                f"{{role}} {modifier_str}",
+                f"{{role}} {prefs.get('location', 'India')}",
+            ]
         else:
-            # Guaranteed fallback: LinkedIn search (always works, not a fake job page)
-            fallback_url = _linkedin_search_url(role)
-            output_lines.append(f"  [1] Title: {role} Jobs - LinkedIn Search")
-            output_lines.append(f"       URL: {fallback_url}")
-            output_lines.append(f"       Snippet: Search LinkedIn for '{role}' entry-level positions. Filter by date posted.")
+            templates = _QUERY_TEMPLATES[:3]
 
-        output_lines.append("")
+        for tmpl in templates:
+            if len(all_jobs) >= TARGET_TOTAL:
+                break
+            query = tmpl.format(role=role)
+            logger.info("Fetching jobs — query: '%s'", query)
+            results = fetch_jobs_from_api(query=query, num_results=5)
 
-    return "\n".join(output_lines)
+            for job in results:
+                title   = job["title"].strip().lower()
+                company = job["company"].strip().lower()
+
+                # Skip if no title or no URL
+                if not title or not job["url"]:
+                    continue
+
+                # Exact dedup by (title, company)
+                key = (title, company)
+                if key in seen_title_company:
+                    continue
+
+                # Company diversity cap — skip if this employer is already well-represented
+                if company_count.get(company, 0) >= MAX_JOBS_PER_COMPANY:
+                    logger.debug("Skipping duplicate company: %s", company)
+                    continue
+
+                seen_title_company.add(key)
+                company_count[company] = company_count.get(company, 0) + 1
+                all_jobs.append(job)
+
+    logger.info("Total unique jobs fetched (company-diverse): %d", len(all_jobs))
+    return all_jobs

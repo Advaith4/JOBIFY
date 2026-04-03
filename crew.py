@@ -1,8 +1,24 @@
-from crewai import Crew
-import concurrent.futures
-import json
+"""
+crew.py – Orchestrates the Hybrid RAG job recommendation pipeline.
+
+Pipeline (run_job_crew):
+  Phase 1 — LLM infers the 5 best-fit roles from the resume.
+  Phase 2 — JSearch API fetches REAL job listings for those roles.
+  Phase 3 — LLM ranks/filters real jobs (RAG mode — zero hallucination).
+
+Parallel execution:
+  job_crew, resume_crew, interview_crew run concurrently via ThreadPoolExecutor.
+  Blocking time.sleep calls have been removed.
+"""
+
+import logging
 import re
+import json
+import uuid
+import concurrent.futures
 import time
+
+from crewai import Crew
 
 # ── Agents ─────────────────────────────────────────────────────────────────
 from agents.job_finder import create_job_finder
@@ -10,75 +26,152 @@ from agents.resume_optimizer import create_resume_optimizer
 from agents.interview_coach import create_interview_coach
 
 # ── Tasks ──────────────────────────────────────────────────────────────────
-from tasks.job_task import create_role_inference_task, create_job_formatting_task
+from tasks.job_task import create_role_inference_task, create_job_ranking_task
 from tasks.resume_task import create_resume_task
 from tasks.interview_task import create_interview_task
 
 # ── Utils ──────────────────────────────────────────────────────────────────
-from utils.skill_scorer import compute_match_score, get_priority, generate_action_plan
-from utils.job_search import fetch_real_job_snippets
+from utils.skill_scorer import get_priority, generate_action_plan
+from utils.job_search import fetch_jobs_for_roles
+
+# ── Logging ────────────────────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
+    datefmt="%H:%M:%S",
+)
+logger = logging.getLogger(__name__)
 
 
-def run_with_retries(func, *args):
-    """Exponential backoff for Free Tier APIs (Groq 6000 TPM limit)."""
-    for attempt in range(4):
-        try:
-            return func(*args)
-        except Exception as e:
-            err = str(e).lower()
-            if "rate limit" in err or "429" in err or "decommission" in err:
-                delay = 5 * (attempt + 1)
-                print(f"⏳ Groq rate limit hit in {func.__name__}. Retrying in {delay}s...")
-                time.sleep(delay)
-            else:
-                raise e
-    return func(*args)
+# ── Helpers ────────────────────────────────────────────────────────────────
 
+def extract_json(raw: str) -> dict | None:
+    """
+    Safely extract the first JSON object from ANY messy LLM output.
+    Strategy:
+      1. Try direct parse.
+      2. Regex-extract the outermost {...} block and retry.
+      3. Return None on failure so callers can apply safe fallbacks.
+    """
+    if not raw:
+        return None
 
-def extract_json(raw):
-    """Safely extract JSON from ANY messy LLM output."""
+    # 1. Direct parse
     try:
         return json.loads(raw)
-    except Exception:
+    except json.JSONDecodeError:
         pass
 
+    # 2. Regex extraction — find the outermost JSON object
     try:
         match = re.search(r"\{.*\}", raw, re.DOTALL)
         if match:
             return json.loads(match.group())
-    except Exception:
+    except json.JSONDecodeError:
         pass
 
+    logger.warning("extract_json: could not parse JSON from LLM output (len=%d)", len(raw))
     return None
 
 
-# ── Fallback LinkedIn search URL builder (only used if real search fails) ──
-def _linkedin_fallback_url(role: str) -> str:
-    encoded = role.replace(" ", "%20")
-    return f"https://www.linkedin.com/jobs/search/?keywords={encoded}&f_E=1%2C2"
+def _is_valid_url(url: str) -> bool:
+    """Return True if url looks like a real https link."""
+    return isinstance(url, str) and url.startswith("https://") and len(url) > 15
 
 
-def run_job_crew(resume_content):
+def _validate_and_score_jobs(jobs: list[dict], all_real_jobs: list[dict]) -> list[dict]:
     """
-    Two-phase job search pipeline:
-      Phase 1 — LLM infers the 5 best matching roles for the candidate.
-      Phase 2 — DuckDuckGo fetches REAL search results for those roles.
-      Phase 3 — LLM formats the real search data into structured JSON.
+    Post-process pipeline:
+      1. Reject any job whose link is not in the set of API-fetched URLs.
+      2. Validate and clamp match_score.
+      3. Compute priority + action_plan.
+      4. Ensure matched_skills / missing_skills exist.
+
+    Returns only verified, scored jobs sorted best-first.
+    """
+    # Build a whitelist of real API URLs (lowercased for comparison)
+    real_urls: set[str] = {j["url"].lower() for j in all_real_jobs if j.get("url")}
+
+    verified: list[dict] = []
+    for job in jobs:
+        link = job.get("link") or job.get("url") or ""
+
+        # ── Hallucination guard: reject if URL wasn't from the API ──────────
+        if not _is_valid_url(link):
+            logger.warning("Dropping job '%s' — link is not a valid URL: %s",
+                           job.get("role", "?"), link)
+            continue
+        if link.lower() not in real_urls:
+            logger.warning("Dropping job '%s' — link not in API results (possible hallucination): %s",
+                           job.get("role", "?"), link)
+            continue
+
+        # ── match_score: validate and clamp ─────────────────────────────────
+        try:
+            score = int(job.get("match_score", 0))
+            score = max(0, min(100, score))
+        except (TypeError, ValueError):
+            score = 0
+        job["match_score"] = score
+        job["priority"] = get_priority(score)
+        job["action_plan"] = generate_action_plan(score, job.get("missing_skills", []))
+
+        # ── Ensure skill lists exist ─────────────────────────────────────────
+        job.setdefault("matched_skills", [])
+        job.setdefault("missing_skills", [])
+        job.setdefault("reason", "")
+
+        # ── Normalise field name (LLM sometimes uses 'url' instead of 'link') ─
+        job["link"] = link
+
+        verified.append(job)
+
+    # Sort best-matching first
+    verified.sort(key=lambda j: j["match_score"], reverse=True)
+    return verified
+
+
+def run_with_retries(func, *args):
+    """Exponential backoff for rate-limited LLM APIs (Groq 6000 TPM limit)."""
+    for attempt in range(4):
+        try:
+            return func(*args)
+        except Exception as exc:
+            err = str(exc).lower()
+            if "rate limit" in err or "429" in err or "decommission" in err:
+                delay = 5 * (attempt + 1)
+                logger.warning("Rate limit hit in %s. Retrying in %ds... (attempt %d/4)",
+                               func.__name__, delay, attempt + 1)
+                time.sleep(delay)
+            else:
+                raise
+    return func(*args)
+
+
+# ── Job Pipeline ───────────────────────────────────────────────────────────
+
+def run_job_crew(resume_content: str, prefs: dict = None) -> dict:
+    """
+    Hybrid RAG job recommendation pipeline:
+
+      Phase 1 — LLM infers 5 best roles from resume.
+      Phase 2 — JSearch API fetches REAL jobs for those roles.
+      Phase 3 — LLM ranks/filters real jobs (Hybrid RAG — no hallucination).
     """
     agent = create_job_finder()
+    run_id = uuid.uuid4().hex[:8]
 
     # ── Phase 1: Role Inference ──────────────────────────────────────────────
-    print("🔍 Phase 1: Inferring best job roles from resume...")
+    logger.info("[%s] Phase 1: Inferring best job roles from resume...", run_id)
     infer_task = create_role_inference_task(agent, resume_content)
     infer_crew = Crew(agents=[agent], tasks=[infer_task], verbose=False)
     infer_result = infer_crew.kickoff()
     infer_raw = getattr(infer_result, "raw", str(infer_result)).strip()
     infer_data = extract_json(infer_raw)
 
-    if infer_data and "roles" in infer_data:
-        roles = infer_data["roles"]
+    if infer_data and isinstance(infer_data.get("roles"), list) and infer_data["roles"]:
+        roles = [str(r) for r in infer_data["roles"] if r][:5]
     else:
-        # Fallback roles if parsing fails
         roles = [
             "Junior Software Developer",
             "Backend Developer Intern",
@@ -86,50 +179,58 @@ def run_job_crew(resume_content):
             "Data Analyst Intern",
             "Machine Learning Intern",
         ]
-    print(f"✅ Inferred roles: {roles}")
+        logger.warning("[%s] Role inference failed — using fallback roles.", run_id)
 
-    # ── Phase 2: Real Web Search ─────────────────────────────────────────────
-    print("🌐 Phase 2: Searching DuckDuckGo for real job postings...")
-    search_results = fetch_real_job_snippets(roles)
-    print("✅ Real search results fetched.")
+    logger.info("[%s] Inferred roles: %s", run_id, roles)
 
-    # ── Phase 3: Format Real Results via LLM ────────────────────────────────
-    print("🤖 Phase 3: LLM formatting real search results into structured output...")
-    format_task = create_job_formatting_task(agent, resume_content, search_results)
-    format_crew = Crew(agents=[agent], tasks=[format_task], verbose=False)
-    format_result = format_crew.kickoff()
-    raw = getattr(format_result, "raw", str(format_result)).strip()
-    data = extract_json(raw) or {"suggested_roles": roles, "jobs": []}
+    # ── Phase 2: Fetch REAL Jobs from JSearch API ────────────────────────────
+    logger.info("[%s] Phase 2: Fetching real job listings from JSearch API...", run_id)
+    real_jobs = fetch_jobs_for_roles(roles, prefs=prefs, jobs_per_role=5)
+    logger.info("[%s] Fetched %d unique real jobs.", run_id, len(real_jobs))
 
-    # ── If LLM still produced < 5 jobs, pad with LinkedIn search fallbacks ──
-    existing_jobs = data.get("jobs", [])
-    while len(existing_jobs) < 5 and roles:
-        role = roles[len(existing_jobs)]
-        existing_jobs.append({
-            "company": "See LinkedIn",
-            "role": role,
-            "required_skills": [],
-            "description": f"Search LinkedIn for '{role}' entry-level positions.",
-            "link": _linkedin_fallback_url(role),
-        })
-    data["jobs"] = existing_jobs[:5]
+    # Hard fallback: if API fails entirely, return structured empty result
+    if not real_jobs:
+        logger.error("[%s] JSearch API returned no jobs. Returning empty result.", run_id)
+        return {
+            "suggested_roles": roles,
+            "jobs": [],
+            "_warning": "Could not fetch live job data. Check RAPIDAPI_KEY and connectivity.",
+        }
 
-    # ── Scoring ──────────────────────────────────────────────────────────────
-    processed_jobs = []
-    for job in data["jobs"]:
-        score_data = compute_match_score(resume_content, job.get("required_skills", []))
-        job["match_score"] = score_data["score"]
-        job["priority"] = get_priority(score_data["score"])
-        job["action_plan"] = generate_action_plan(score_data["score"], score_data["missing_keywords"])
-        job["matched_skills"] = score_data["matched_keywords"][:5]
-        job["missing_skills"] = score_data["missing_keywords"][:5]
-        processed_jobs.append(job)
+    # ── Phase 3: Hybrid RAG — LLM ranks ONLY real jobs ──────────────────────
+    logger.info("[%s] Phase 3: LLM ranking %d real jobs (RAG mode)...", run_id, len(real_jobs))
+    rank_task = create_job_ranking_task(agent, resume_content, real_jobs)
+    rank_crew = Crew(agents=[agent], tasks=[rank_task], verbose=False)
+    rank_result = rank_crew.kickoff()
+    raw = getattr(rank_result, "raw", str(rank_result)).strip()
 
-    data["jobs"] = processed_jobs
-    return data
+    data = extract_json(raw)
+    if not data or not isinstance(data.get("jobs"), list):
+        logger.warning("[%s] LLM ranking output parse failed — applying safe fallback.", run_id)
+        data = {"suggested_roles": roles, "jobs": []}
+
+    # ── Validation & Scoring ─────────────────────────────────────────────────
+    logger.info("[%s] Validating and scoring %d candidate jobs...", run_id, len(data["jobs"]))
+    verified_jobs = _validate_and_score_jobs(data["jobs"], real_jobs)
+
+    # Filter: keep ≥30% match, but always surface at least 3 results
+    good = [j for j in verified_jobs if j["match_score"] >= 30]
+    final_jobs = (good if len(good) >= 3 else verified_jobs)[:5]
+
+    logger.info("[%s] Final result: %d verified jobs returned.", run_id, len(final_jobs))
+    logger.info("[%s] Jobs: %s", run_id,
+                [f"{j.get('role','?')} @ {j.get('company','?')} ({j.get('match_score',0)}%)"
+                 for j in final_jobs])
+
+    return {
+        "suggested_roles": data.get("suggested_roles", roles),
+        "jobs": final_jobs,
+    }
 
 
-def run_resume_crew(resume_content):
+# ── Supporting Crews ───────────────────────────────────────────────────────
+
+def run_resume_crew(resume_content: str) -> dict:
     agent = create_resume_optimizer()
     task = create_resume_task(agent, resume_content)
     crew = Crew(agents=[agent], tasks=[task], verbose=False)
@@ -138,7 +239,7 @@ def run_resume_crew(resume_content):
     return extract_json(raw) or {"improvements": []}
 
 
-def run_interview_crew(resume_content):
+def run_interview_crew(resume_content: str) -> dict:
     agent = create_interview_coach()
     task = create_interview_task(agent, resume_content)
     crew = Crew(agents=[agent], tasks=[task], verbose=False)
@@ -147,35 +248,32 @@ def run_interview_crew(resume_content):
     return extract_json(raw) or {"questions": []}
 
 
-def analyze_resume_pipeline(resume_content):
+# ── Master Pipeline ────────────────────────────────────────────────────────
+
+def analyze_resume_pipeline(resume_content: str, prefs: dict = None) -> dict:
     """
-    Runs all 3 agents in parallel and combines the outputs.
-    Note: job crew runs multiple phases internally but still kicks off concurrently
-    with the other two agents.
+    Runs all 3 agents concurrently and combines their outputs.
+    Blocking time.sleep calls have been removed — the thread pool handles concurrency.
     """
-    print("🚀 Starting smart parallel analysis pipeline...")
+    logger.info("🚀 Starting parallel analysis pipeline...")
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-        future_jobs = executor.submit(run_with_retries, run_job_crew, resume_content)
-
-        def run_resume(content):
-            time.sleep(2)
-            return run_with_retries(run_resume_crew, content)
-
-        def run_interview(content):
-            time.sleep(5)
-            return run_with_retries(run_interview_crew, content)
-
-        future_resume = executor.submit(run_resume, resume_content)
-        future_interview = executor.submit(run_interview, resume_content)
+        future_jobs = executor.submit(run_with_retries, run_job_crew, resume_content, prefs)
+        future_resume = executor.submit(run_with_retries, run_resume_crew, resume_content)
+        future_interview = executor.submit(run_with_retries, run_interview_crew, resume_content)
 
         jobs_data = future_jobs.result()
         resume_data = future_resume.result()
         interview_data = future_interview.result()
 
-    return {
+    result = {
         "roles": jobs_data.get("suggested_roles", []),
         "jobs": jobs_data.get("jobs", []),
         "improvements": resume_data.get("improvements", []),
         "questions": interview_data.get("questions", []),
     }
+
+    logger.info("✅ Pipeline complete. roles=%d, jobs=%d, improvements=%d, questions=%d",
+                len(result["roles"]), len(result["jobs"]),
+                len(result["improvements"]), len(result["questions"]))
+    return result

@@ -1,12 +1,16 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import os
+import uuid
 import shutil
+import logging
 
 from utils.resume_parser import extract_text_from_pdf
 from crew import analyze_resume_pipeline
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Jobify API")
 
@@ -21,15 +25,21 @@ app.add_middleware(
 # Routes will be evaluated in order
 
 @app.post("/api/analyze")
-async def analyze_resume(file: UploadFile = File(...)):
+async def analyze_resume(
+    file: UploadFile = File(...),
+    location: str = Form(default="India"),
+    job_type: str = Form(default="Full-time"),
+    work_mode: str = Form(default="Any"),
+    experience: str = Form(default="Entry-level")
+):
     if not file.filename.lower().endswith(".pdf"):
         return JSONResponse(status_code=400, content={"error": "Only PDF files are supported."})
-    
-    # Save the file temporarily
+
+    # Use UUID to avoid filename collisions in concurrent uploads
     if not os.path.exists("data"):
         os.makedirs("data")
-        
-    temp_path = f"data/temp_{file.filename}"
+
+    temp_path = f"data/resume_{uuid.uuid4().hex}.pdf"
     with open(temp_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
         
@@ -41,7 +51,13 @@ async def analyze_resume(file: UploadFile = File(...)):
             return JSONResponse(status_code=400, content={"error": "Could not extract sufficient text from the PDF. Make sure it is text-based."})
             
         # 2. Run the AI Pipeline
-        results = analyze_resume_pipeline(resume_content)
+        prefs = {
+            "location": location,
+            "job_type": job_type,
+            "work_mode": work_mode,
+            "experience": experience
+        }
+        results = analyze_resume_pipeline(resume_content, prefs)
         
         return JSONResponse(content=results)
         
