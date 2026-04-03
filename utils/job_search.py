@@ -25,6 +25,7 @@ def _headers() -> dict:
         "X-RapidAPI-Host": "jsearch.p.rapidapi.com",
     }
 
+_cache = {}
 
 def fetch_jobs_from_api(query: str, num_results: int = 10, page: int = 1) -> list[dict]:
     """
@@ -38,6 +39,11 @@ def fetch_jobs_from_api(query: str, num_results: int = 10, page: int = 1) -> lis
     if not os.getenv("RAPIDAPI_KEY"):
         logger.error("RAPIDAPI_KEY is not set. Cannot fetch jobs from JSearch.")
         return []
+
+    cache_key = f"{query}|{num_results}|{page}"
+    if cache_key in _cache:
+        logger.info("JSearch cache hit for query: '%s'", query)
+        return _cache[cache_key]
 
     params = {
         "query": query,
@@ -81,6 +87,7 @@ def fetch_jobs_from_api(query: str, num_results: int = 10, page: int = 1) -> lis
         })
 
     logger.info("Fetched %d jobs from JSearch for query: '%s'", len(jobs), query)
+    _cache[cache_key] = jobs
     return jobs
 
 

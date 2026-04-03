@@ -68,8 +68,8 @@ def create_job_ranking_task(agent, resume_content: str, real_jobs: list[dict]) -
     real_jobs: list of {title, company, url, location, description}
     """
     # Serialize real jobs into a compact numbered block for the prompt.
-    # Cap at 12 jobs and 250-char descriptions to stay inside Groq's 6000 TPM free-tier limit.
-    capped_jobs = real_jobs[:12]
+    # Cap at 10 jobs and 250-char descriptions to stay inside Groq's 6000 TPM free-tier limit.
+    capped_jobs = real_jobs[:10]
     jobs_block_lines = []
     for i, job in enumerate(capped_jobs, start=1):
         desc = (job.get('description') or '')[:250].replace('\n', ' ')

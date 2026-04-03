@@ -170,7 +170,7 @@ def run_job_crew(resume_content: str, prefs: dict = None) -> dict:
     infer_data = extract_json(infer_raw)
 
     if infer_data and isinstance(infer_data.get("roles"), list) and infer_data["roles"]:
-        roles = [str(r) for r in infer_data["roles"] if r][:5]
+        roles = [str(r) for r in infer_data["roles"] if r][:3]
     else:
         roles = [
             "Junior Software Developer",
@@ -194,8 +194,27 @@ def run_job_crew(resume_content: str, prefs: dict = None) -> dict:
         return {
             "suggested_roles": roles,
             "jobs": [],
+            "message": "No relevant jobs found",
             "_warning": "Could not fetch live job data. Check RAPIDAPI_KEY and connectivity.",
         }
+
+    # ── Phase 2.5: Pre-scoring (Rule-based logic to select top 10) ──────────
+    # Extract generic skills/keywords from resume (words > 4 chars) to prescore
+    skills_extracted = set(re.findall(r'\b[a-zA-Z]{5,}\b', resume_content.lower()))
+    
+    def score_job(job, skills):
+        score = 0
+        description = (job.get("description") or "").lower()
+        title = (job.get("title") or "").lower()
+        text_to_search = title + " " + description
+        for skill in skills:
+            if skill in text_to_search:
+                score += 1
+        return score
+
+    real_jobs = sorted(real_jobs, key=lambda j: score_job(j, skills_extracted), reverse=True)
+    real_jobs = real_jobs[:10]
+    logger.info("[%s] Pre-scored top 10 jobs selected.", run_id)
 
     # ── Phase 3: Hybrid RAG — LLM ranks ONLY real jobs ──────────────────────
     logger.info("[%s] Phase 3: LLM ranking %d real jobs (RAG mode)...", run_id, len(real_jobs))
