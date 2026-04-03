@@ -192,10 +192,28 @@
         </div>
 
         <div id="pane-interview" class="pane hidden">
+            <!-- ── Interactive Interview ── -->
+            <div class="interactive-interview-block" id="interactive-interview-block">
+                <button class="btn-primary" id="start-interactive-btn" style="margin-bottom: 1.5rem; width:100%; border-radius: 12px; font-size: 1.05rem;">
+                    <i class="fa-solid fa-play"></i> Start Interactive Mock Interview
+                </button>
+                <div id="interview-chat" class="hidden" style="background: var(--surface); padding: 1.25rem; border-radius: 16px; border: 1px solid var(--border); margin-bottom:2rem;">
+                    <h3 style="margin-bottom:1rem; font-size:1.1rem; border-bottom:1px solid var(--border); padding-bottom:.5rem;">Mock Interview Session</h3>
+                    <div id="interview-chat-log" style="display:flex; flex-direction:column; gap:.85rem; max-height:400px; overflow-y:auto; margin-bottom:1rem; padding-right:.5rem;"></div>
+                    <form id="interview-answer-form" style="display:flex; gap:.5rem;">
+                        <input type="text" id="interview-answer-input" required placeholder="Type your answer here..." style="flex:1; padding:.85rem 1rem; border-radius:12px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-family:'Inter', sans-serif;">
+                        <button type="submit" class="btn-primary" id="interview-submit-btn" style="width:auto; padding:0 1.5rem;"><i class="fa-solid fa-paper-plane"></i></button>
+                    </form>
+                </div>
+            </div>
+
+            <hr style="border:0; border-top:1px solid var(--border); margin: 2rem 0;">
+            <h3 style="margin-bottom: 1.25rem; font-size:1.1rem; color: var(--text);">Or review generated static questions:</h3>
+
             <div class="cards-list" id="questions-container"></div>
         </div>
     </div>
 
-    <script src="script.js"></script>
+    <script src="script.js?v=2"></script>
 </body>
 </html>

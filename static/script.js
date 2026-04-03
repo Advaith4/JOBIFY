@@ -31,9 +31,18 @@ document.addEventListener("DOMContentLoaded", () => {
     const improvList     = document.getElementById("improvements-list");
     const questionsContainer = document.getElementById("questions-container");
 
+    /* ── Interactive Interview refs ─────────────────────── */
+    const startInteractiveBtn  = document.getElementById("start-interactive-btn");
+    const interviewChat        = document.getElementById("interview-chat");
+    const interviewChatLog     = document.getElementById("interview-chat-log");
+    const interviewAnswerForm  = document.getElementById("interview-answer-form");
+    const interviewAnswerInput = document.getElementById("interview-answer-input");
+    const interviewSubmitBtn   = document.getElementById("interview-submit-btn");
+
     /* ── State ──────────────────────────────────────────── */
     let selectedFile = null;
     let phaseTimers  = [];
+    let currentSessionId = null;
 
     /* ─────────────────────────────────────────────────────
        HELPERS: show/hide pages
@@ -178,7 +187,117 @@ document.addEventListener("DOMContentLoaded", () => {
         analyzeBtn.disabled = true;
         // reset first tab
         document.querySelectorAll(".tab")[0].click();
+        
+        // reset interactive state
+        currentSessionId = null;
+        interviewChat.classList.add("hidden");
+        startInteractiveBtn.classList.remove("hidden");
+        startInteractiveBtn.innerHTML = '<i class="fa-solid fa-play"></i> Start Interactive Mock Interview';
+        startInteractiveBtn.disabled = false;
+        interviewChatLog.innerHTML = "";
+        
         showPage(pageHome);
+    });
+
+    /* ─────────────────────────────────────────────────────
+       INTERACTIVE INTERVIEW
+    ───────────────────────────────────────────────────── */
+    
+    function appendChatMessage(sender, text, type) {
+        const msg = document.createElement("div");
+        msg.style.padding = "1rem";
+        msg.style.borderRadius = "12px";
+        msg.style.marginTop = "0.5rem";
+        
+        if (type === "user") {
+            msg.style.background = "var(--purple)";
+            msg.style.color = "#fff";
+            msg.style.marginLeft = "2rem";
+        } else if (type === "coach-eval") {
+            msg.style.background = "rgba(167, 139, 250, 0.1)";
+            msg.style.border = "1px solid rgba(167, 139, 250, 0.3)";
+            msg.style.color = "var(--text)";
+        } else {
+            msg.style.background = "var(--bg)";
+            msg.style.border = "1px solid var(--border)";
+            msg.style.color = "var(--text)";
+            msg.style.marginRight = "2rem";
+        }
+        
+        msg.innerHTML = `<strong>${sender}</strong> <div style="margin-top:0.4rem; line-height:1.5;">${text}</div>`;
+        interviewChatLog.appendChild(msg);
+        interviewChatLog.scrollTop = interviewChatLog.scrollHeight;
+    }
+
+    startInteractiveBtn.addEventListener("click", async () => {
+        const roleEls = document.querySelectorAll(".role-tag");
+        const topRole = roleEls.length > 0 ? roleEls[0].textContent : "Software Engineer";
+
+        startInteractiveBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Initializing Coach...';
+        startInteractiveBtn.disabled = true;
+
+        try {
+            const res = await fetch("/interview/start", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ role: topRole, difficulty: 5 })
+            });
+
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || "Failed to start interview");
+
+            currentSessionId = data.session_id;
+            
+            interviewChatLog.innerHTML = "";
+            appendChatMessage("Coach", data.question, "coach");
+
+            startInteractiveBtn.classList.add("hidden");
+            interviewChat.classList.remove("hidden");
+        } catch (e) {
+            alert("Error: " + e.message);
+            startInteractiveBtn.innerHTML = '<i class="fa-solid fa-play"></i> Start Interactive Mock Interview';
+            startInteractiveBtn.disabled = false;
+        }
+    });
+
+    interviewAnswerForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        if (!currentSessionId) return;
+
+        const answer = interviewAnswerInput.value.trim();
+        if (!answer) return;
+
+        appendChatMessage("You", answer, "user");
+        interviewAnswerInput.value = "";
+        interviewSubmitBtn.disabled = true;
+        interviewSubmitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+
+        try {
+            const res = await fetch("/interview/answer", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ session_id: currentSessionId, answer: answer })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || "Failed to process answer");
+
+            const ev = data.evaluation;
+            const evalHtml = `
+                <div style="margin-bottom:0.8rem;"><strong style="color:var(--amber);">Evaluation Score: ${ev.score}/10</strong></div>
+                <div style="margin-bottom:0.4rem;"><strong>Strengths:</strong> ${ev.strengths?.join(", ")}</div>
+                <div style="margin-bottom:0.4rem;"><strong>Weaknesses:</strong> ${ev.weaknesses?.join(", ")}</div>
+                <div><strong>Actionable Feedback:</strong> ${ev.improvements}</div>
+            `;
+
+            appendChatMessage("Coach (Evaluation)", evalHtml, "coach-eval");
+            appendChatMessage("Coach", data.next_question, "coach");
+
+        } catch (e) {
+            alert("Error: " + e.message);
+        } finally {
+            interviewSubmitBtn.disabled = false;
+            interviewSubmitBtn.innerHTML = '<i class="fa-solid fa-paper-plane"></i>';
+        }
     });
 
     /* ─────────────────────────────────────────────────────

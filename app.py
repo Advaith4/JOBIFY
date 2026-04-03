@@ -1,4 +1,5 @@
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, Body
+from pydantic import BaseModel
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,7 +9,23 @@ import shutil
 import logging
 
 from utils.resume_parser import extract_text_from_pdf
-from crew import analyze_resume_pipeline
+from crew import (
+    analyze_resume_pipeline,
+    run_resume_analyzer,
+    run_resume_rewriter,
+    run_interview_start,
+    run_interview_answer
+)
+
+interview_sessions = {}
+
+class InterviewStartReq(BaseModel):
+    role: str
+    difficulty: int = 5
+
+class InterviewAnswerReq(BaseModel):
+    session_id: str
+    answer: str
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +90,103 @@ async def analyze_resume(
                 os.remove(temp_path)
             except:
                 pass
+
+# ── New Endpoints (Resume Copilot & Interview Coach) ─────────────────────────
+
+@app.post("/resume/analyze")
+async def resume_analyzer_endpoint(
+    file: UploadFile = File(...),
+    target_role: str = Form(default="")
+):
+    if not file.filename.lower().endswith(".pdf"):
+        return JSONResponse(status_code=400, content={"error": "Only PDF files are supported."})
+
+    if not os.path.exists("data"): os.makedirs("data")
+    temp_path = f"data/eval_{uuid.uuid4().hex}.pdf"
+    
+    try:
+        with open(temp_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        resume_content = extract_text_from_pdf(temp_path)
+        if not resume_content or len(resume_content) < 50:
+            return JSONResponse(status_code=400, content={"error": "Empty or bad PDF"})
+            
+        results = run_resume_analyzer(resume_content, target_role)
+        return JSONResponse(content=results)
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+    finally:
+        if os.path.exists(temp_path): os.remove(temp_path)
+
+@app.post("/resume/rewrite")
+async def resume_rewrite_endpoint(file: UploadFile = File(...)):
+    if not file.filename.lower().endswith(".pdf"):
+        return JSONResponse(status_code=400, content={"error": "Only PDFs."})
+
+    if not os.path.exists("data"): os.makedirs("data")
+    temp_path = f"data/rewrite_{uuid.uuid4().hex}.pdf"
+    
+    try:
+        with open(temp_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        resume_content = extract_text_from_pdf(temp_path)
+        if not resume_content or len(resume_content) < 50:
+            return JSONResponse(status_code=400, content={"error": "Empty or bad PDF"})
+            
+        results = run_resume_rewriter(resume_content)
+        return JSONResponse(content=results)
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+    finally:
+        if os.path.exists(temp_path): os.remove(temp_path)
+
+@app.post("/interview/start")
+async def interview_start(req: InterviewStartReq):
+    try:
+        results = run_interview_start(req.role, req.difficulty)
+        session_id = uuid.uuid4().hex
+        interview_sessions[session_id] = {
+            "role": req.role,
+            "difficulty": req.difficulty,
+            "current_question": results.get("question")
+        }
+        return {"session_id": session_id, "question": results.get("question")}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.post("/interview/answer")
+async def interview_answer(req: InterviewAnswerReq):
+    if req.session_id not in interview_sessions:
+        return JSONResponse(status_code=400, content={"error": "Invalid session ID. Please start a new interview."})
+    
+    session = interview_sessions[req.session_id]
+    
+    if not req.answer.strip():
+        return JSONResponse(status_code=400, content={"error": "Answer cannot be empty."})
+    
+    try:
+        results = run_interview_answer(
+            role=session["role"],
+            question=session["current_question"],
+            answer=req.answer,
+            current_diff=session["difficulty"]
+        )
+        
+        # update session state dynamically!
+        new_diff = results.get("new_difficulty", session["difficulty"])
+        
+        # Force bounds on difficulty safely parsing as int
+        try:
+            new_diff = int(new_diff)
+        except (ValueError, TypeError):
+            new_diff = session["difficulty"]
+            
+        session["difficulty"] = max(1, min(10, new_diff))
+        session["current_question"] = results.get("next_question")
+        
+        return results
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 # Mount the static directory for the Frontend (MUST BE LAST)
 if not os.path.exists("static"):

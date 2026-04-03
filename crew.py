@@ -22,13 +22,25 @@ from crewai import Crew
 
 # ── Agents ─────────────────────────────────────────────────────────────────
 from agents.job_finder import create_job_finder
-from agents.resume_optimizer import create_resume_optimizer
-from agents.interview_coach import create_interview_coach
+from agents.resume_optimizer import create_resume_optimizer, create_resume_rewriter
+from agents.interview_coach import (
+    create_interview_coach, 
+    create_interviewer, 
+    create_evaluator, 
+    create_followup_coach, 
+    create_difficulty_controller
+)
 
 # ── Tasks ──────────────────────────────────────────────────────────────────
 from tasks.job_task import create_role_inference_task, create_job_ranking_task
-from tasks.resume_task import create_resume_task
-from tasks.interview_task import create_interview_task
+from tasks.resume_task import create_resume_task, create_resume_analysis_task, create_bullet_rewriting_task
+from tasks.interview_task import (
+    create_interview_task, 
+    create_interview_start_task, 
+    create_evaluator_task, 
+    create_followup_task, 
+    create_difficulty_task
+)
 
 # ── Utils ──────────────────────────────────────────────────────────────────
 from utils.skill_scorer import get_priority, generate_action_plan
@@ -296,3 +308,67 @@ def analyze_resume_pipeline(resume_content: str, prefs: dict = None) -> dict:
                 len(result["roles"]), len(result["jobs"]),
                 len(result["improvements"]), len(result["questions"]))
     return result
+
+# ── New Endpoints / Features ───────────────────────────────────────────────
+
+def run_resume_analyzer(resume_content: str, target_role: str = "") -> dict:
+    agent = create_resume_optimizer()
+    task = create_resume_analysis_task(agent, resume_content, target_role)
+    crew = Crew(agents=[agent], tasks=[task], verbose=False)
+    result = crew.kickoff()
+    raw = getattr(result, "raw", str(result)).strip()
+    return extract_json(raw) or {"score": 0, "issues": [], "improvements": [], "section_feedback": {}}
+
+def run_resume_rewriter(resume_content: str) -> dict:
+    agent = create_resume_rewriter()
+    task = create_bullet_rewriting_task(agent, resume_content)
+    crew = Crew(agents=[agent], tasks=[task], verbose=False)
+    result = crew.kickoff()
+    raw = getattr(result, "raw", str(result)).strip()
+    return extract_json(raw) or {"rewritten_lines": []}
+
+def run_interview_start(role: str, difficulty: int) -> dict:
+    agent = create_interviewer()
+    task = create_interview_start_task(agent, role, difficulty)
+    crew = Crew(agents=[agent], tasks=[task], verbose=False)
+    result = crew.kickoff()
+    raw = getattr(result, "raw", str(result)).strip()
+    return extract_json(raw) or {"question": "Could you tell me about yourself and your experience?"}
+
+def run_interview_answer(role: str, question: str, answer: str, current_diff: int) -> dict:
+    # ── Multi-Agent Iterative Execution ──
+    # 1. Evaluator reviews the answer -> yields score
+    ag_eval = create_evaluator()
+    t_eval = create_evaluator_task(ag_eval, question, answer)
+    c_eval = Crew(agents=[ag_eval], tasks=[t_eval], verbose=False)
+    
+    raw_eval = getattr(c_eval.kickoff(), "raw", "").strip()
+    eval_json = extract_json(raw_eval) or {"score": 5, "strengths": ["Clear communication"], "weaknesses": ["Needs more depth"], "improvements": "Elaborate more."}
+    score = eval_json.get("score", 5)
+    
+    # 2. Run Follow-up generator and Difficulty controller in parallel
+    def _run_followup():
+        ag_f = create_followup_coach()
+        t_f = create_followup_task(ag_f, role, question, answer, current_diff)
+        c_f = Crew(agents=[ag_f], tasks=[t_f], verbose=False)
+        raw_f = getattr(c_f.kickoff(), "raw", "").strip()
+        return extract_json(raw_f) or {"question": "Can you elaborate further?"}
+        
+    def _run_diff():
+        ag_d = create_difficulty_controller()
+        t_d = create_difficulty_task(ag_d, current_diff, score)
+        c_d = Crew(agents=[ag_d], tasks=[t_d], verbose=False)
+        raw_d = getattr(c_d.kickoff(), "raw", "").strip()
+        return extract_json(raw_d) or {"new_difficulty": current_diff}
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+        fut_f = ex.submit(run_with_retries, _run_followup)
+        fut_d = ex.submit(run_with_retries, _run_diff)
+        f_json = fut_f.result()
+        d_json = fut_d.result()
+        
+    return {
+        "evaluation": eval_json,
+        "next_question": f_json.get("question", "Can you explain specifically how you handled that?"),
+        "new_difficulty": d_json.get("new_difficulty", current_diff)
+    }
